@@ -1,0 +1,52 @@
+Install Prerequisites
+=====================
+
+sudo apt-get install build-essential libxml-libxml-perl libxml-dom-perl libexpect-perl libmysql-perl mysql-server mysql-client git
+
+Install Chess::PGN::Moves from CPAN.
+
+sudo perl -MCPAN -e 'install Chess::PGN::Moves'
+
+
+Clone the Project
+=================
+
+Clone the duckhunt project from github.
+
+git clone git://github.com/thaughbaer/duckhunt.git
+
+cd duckhunt
+
+Install Perl Modules
+====================
+
+gunzip -c Chess-PGN-Parse-0.19.tar.gz | tar xvf -
+gunzip -c Chess-PGN-EPD-0.31.tar.gz | tar xvf -
+
+patch -p0 < Chess-PGN-Parse-0.19.patch
+patch -p0 < Chess-PGN-EPD-0.31.patch
+
+cd Chess-PGN-Parse-0.19
+
+perl Makefile.PL 
+make 
+make test 
+sudo make install
+
+cd Chess-PGN-EPD-0.31
+
+perl Makefile.PL 
+make 
+sudo make install
+
+Install Polyglot Utilities
+==========================
+
+gunzip -c pg_utils-0.2.tar.gz | tar xvf -
+
+patch -p0 < pg_utils-0.2.patch
+cd pg_utils-0.2.
+make
+sudo install pg_add pg_query pg_key /usr/local/bin
+
+

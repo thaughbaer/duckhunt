@@ -49,6 +49,11 @@ cd pg_utils-0.2.
 make
 sudo install pg_add pg_query pg_key /usr/local/bin
 
+Install Opening Books
+=====================
+
+unzip Books.zip
+
 Create the Duckkhunt Database
 =============================
 

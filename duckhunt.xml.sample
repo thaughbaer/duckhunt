@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<config>
+	<engine>
+		<path>/usr/games/stockfish</path>
+		<hash_size>256</hash_size>
+		<pv>3</pv>
+		<depth>20</depth>
+		<movetime>10000</movetime>
+	</engine>
+	<polyglot>
+		<path>/usr/local/bin</path>
+		<book>books/varied.bin</book>
+	</polyglot>
+	<database>
+		<name>duckhunt</name>
+	</database>
+	<analysis>
+		<blunder_threshold>250</blunder_threshold>
+		<forced_threshold>250</forced_threshold>
+		<mate_score>10000</mate_score>
+	</analysis>
+</config>

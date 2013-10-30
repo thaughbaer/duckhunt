@@ -1,0 +1,562 @@
+#!/usr/bin/perl -w -T
+
+#******************************************************************************#
+#                                                                              #
+# Copyright (C) 2012 thaughbaer@redhotpawn.com                                  #
+#                                                                              #
+# This program is free software; you can redistribute it and/or modify         #
+# it under the terms of the GNU General Public License as published by         #
+# the Free Software Foundation; version 2 of the License.                      #
+#                                                                              #
+# This program is distributed in the hope that it will be useful,              #
+# but WITHOUT ANY WARRANTY; without even the implied warranty of               #
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                #
+# GNU General Public License for more details.                                 #
+#                                                                              #
+# You should have received a copy of the GNU General Public License            #
+# along with this program; if not, write to the Free Software                  #
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA    #
+#                                                                              #
+#******************************************************************************#
+
+use strict;
+use warnings;
+
+use vars qw/$opt_f/;
+use Getopt::Std;
+
+use File::Basename;
+
+use XML::LibXML;
+use XML::DOM;
+
+use Expect;
+
+use Chess::PGN::Parse;
+use Chess::PGN::EPD;
+
+use DBI;
+use DBD::mysql;
+
+use Data::Dumper;
+
+if (!getopts('f:') || $#ARGV != 0) {
+        die "usage: $0 [ -f pgn_filename ] player\n";
+}
+
+$ENV{'PATH'} = "/bin";
+$ENV{'ENV'} = "";
+
+my $program = basename($0);
+
+my $player_arg = $ARGV[0];
+
+my $config;
+
+eval {
+	my $schema = XML::LibXML::Schema->new(location => "$program.xsd");
+	my $parser = XML::LibXML->new;
+	$config = $parser->parse_file("$program.xml");
+	$schema->validate($config);
+};
+if ($@) {
+        die "Cannot load config file: $@";
+}
+
+#print $config->toString."\n";
+
+my $timeout = 30;
+
+sub analyse {
+	my $exp = shift;
+	my $depth = shift;
+	my $movetime = shift;
+	my $move = shift;
+
+	my @variation;
+
+	$exp->send("go depth $depth movetime $movetime ".(defined $move ? 'searchmoves '.$move : '')."\r");
+	$exp->expect(int(($movetime/1000)*1.1),
+		[ eof => sub {
+			die "Expect conversation aborted"; }
+		],
+		[ timeout => sub {
+			die "Expect conversation timeout"; }
+		],
+		[ '-re', qr/^info (.*)?\bpv ([-+\w]+)\b.*?\r?$/mi => sub {
+			(my $rank) = ($exp->matchlist)[0] =~ /\bmultipv (\d+)\b/;
+			($variation[$rank]{'depth'}) = ($exp->matchlist)[0] =~ /\bdepth (\d+)\b/;
+			($variation[$rank]{'seldepth'}) = ($exp->matchlist)[0] =~ /\bseldepth (\d+)\b/;
+			($variation[$rank]{'centipawns'}) = ($exp->matchlist)[0] =~ /\bscore cp ([-\d]+)\b/;
+			($variation[$rank]{'mate'}) = ($exp->matchlist)[0] =~ /\bscore mate ([-\d]+)\b/;
+			($variation[$rank]{'nodes'}) = ($exp->matchlist)[0] =~ /\bnodes (\d+)\b/;
+			($variation[$rank]{'time'}) = ($exp->matchlist)[0] =~ /\btime (\d+)\b/;
+			$variation[$rank]{'move'} = ($exp->matchlist)[1];
+			exp_continue; }
+		],
+		'-re', qr/^bestmove\b.*?\r?$/mi
+	);
+	return \@variation;
+}
+
+sub ins_moves
+{
+	my $dbh = shift;
+	my $game_id = shift;
+	my $color = shift;
+	my $move_number = shift;
+	my $rank = shift;
+	my $move = shift;
+
+	my $ins_moves_sth = $dbh->prepare('INSERT INTO moves(game_id, color, move_number, rank, depth, seldepth, centipawns, mate, nodes, time, move) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+       		or die "Cannot prepare statement: ".$dbh->errstr;
+	
+	$ins_moves_sth->execute($game_id, $color, $move_number, $rank, $move->{'depth'}, $move->{'seldepth'}, $move->{'centipawns'}, $move->{'mate'}, $move->{'nodes'}, $move->{'time'}, $move->{'move'})
+		or die "Cannot execute statement: ".$ins_moves_sth->errstr;
+	
+	$ins_moves_sth->finish();
+}
+
+my $dbh = DBI->connect("DBI:mysql:database=".$config->findvalue('/config/database/name').($config->findvalue('/config/database/host') ? ";host=".$config->findvalue('/config/database/host').($config->findvalue('/config/database/port') ? ";port=".$config->findvalue('/config/database/port') : "") : ""), $config->findvalue('/config/database/user'), $config->findvalue('/config/database/password'))
+	or die "Cannot connect to database: ".DBI->errstr;
+
+$dbh->{AutoCommit} = 0;
+
+if ($opt_f) {
+	my $engine_exp = new Expect;
+	
+	$engine_exp->spawn($config->findvalue('/config/engine/path'))
+		or die "Cannot start UCI engine: errno $!";
+	
+	$engine_exp->expect($timeout,
+		[ eof => sub {
+			die "Expect conversation aborted"; }
+		],
+		[ timeout => sub {
+			die "Expect conversation timeout"; }
+		],
+		'-re', qr/^.+?\b\r?$/mi
+	);
+	
+	my $engine_name;
+	
+	$engine_exp->send("uci\r");
+	
+	$engine_exp->expect($timeout,
+		[ eof => sub {
+			die "Expect conversation aborted"; }
+		],
+		[ timeout => sub {
+			die "Expect conversation timeout"; }
+		],
+		[ '-re', qr/^id name (.+)?\b\r?$/mi => sub {
+			$engine_name = ($engine_exp->matchlist)[0];
+			exp_continue; }
+		],
+		'-re', qr/uciok\r/i
+	);
+	
+	$engine_exp->send("setoption name UCI_AnalyseMode value true\r");
+	$engine_exp->send("setoption name Hash value ".$config->findvalue('/config/engine/hash_size')."\r");
+	$engine_exp->send("setoption name MultiPV value ".$config->findvalue('/config/engine/pv')."\r");
+	
+	$engine_exp->send("isready\r");
+	
+	$engine_exp->expect($timeout,
+		[ eof => sub {
+			die "Expect conversation aborted"; }
+		],
+		[ timeout => sub {
+			die "Expect conversation timeout"; }
+		],
+		'-re', qr/readyok\r/i
+	);
+	
+	my $book_exp = new Expect;
+	
+	$book_exp->spawn($config->findvalue('/config/polyglot/path')."/pg_query ".$config->findvalue('/config/polyglot/book'))
+		or die "Cannot start open book explorer: errno $!";
+	
+	$book_exp->expect($timeout,
+		[ eof => sub {
+			die "Expect conversation aborted"; }
+		],
+		[ timeout => sub {
+			die "Expect conversation timeout"; }
+		],
+		'-re', qr/readyok\r/i
+	);
+	
+	my $pgn = new Chess::PGN::Parse($opt_f)
+		or die "Cannot open PGN file: errno $!";
+	
+	while ($pgn->read_game()) {
+		$pgn->parse_game();
+
+		print "Game ID: $pgn->{gamedescr}{GameId}\n";
+	
+		my @players = ($pgn->white, $pgn->black);
+	
+		my $game_stored = 0;
+
+		my $sel_games_analysis_sth = $dbh->prepare('SELECT pv, depth, movetime FROM games g, analysis a WHERE a.game_id = g.game_id AND g.game_id = ?')
+	       		or die "Cannot prepare statement: ".$dbh->errstr;
+	
+		$sel_games_analysis_sth->execute($pgn->{gamedescr}{GameId})
+			or die "Cannot execute statement: ".$sel_games_analysis_sth->errstr;
+
+		my $pv_db;
+		my $depth_db;
+		my $movetime_db;
+	
+		$sel_games_analysis_sth->bind_columns(\$pv_db, \$depth_db, \$movetime_db)
+			or die "Cannot bind columns: ".$sel_games_analysis_sth->errstr;
+	
+		if ($sel_games_analysis_sth->fetch()) {
+			if ($config->findvalue('/config/engine/pv') != $pv_db || $config->findvalue('/config/engine/depth') != $depth_db || $config->findvalue('/config/engine/movetime') != $movetime_db) {
+				my $del_games_sth = $dbh->prepare('DELETE FROM games WHERE game_id = ?')
+	        			or die "Cannot prepare statement: ".$dbh->errstr;
+	
+				$del_games_sth->execute($pgn->{gamedescr}{GameId})
+					or die "Cannot execute statement: ".$del_games_sth->errstr;
+	
+				$del_games_sth->finish();
+			}
+			else {
+				$game_stored = 1;
+			}
+		}
+	
+		$sel_games_analysis_sth->finish();
+	
+		if (!$game_stored) {
+			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, white, black, result) VALUES (?, ?, ?, ?)')
+		       		or die "Cannot prepare statement: ".$dbh->errstr;
+	
+			$ins_games_sth->execute($pgn->{gamedescr}{GameId}, $players[0], $players[1], $pgn->{gamedescr}{Result})
+				or die "Cannot execute statement: ".$ins_games_sth->errstr;
+	
+			$ins_games_sth->finish();
+	
+			my $ins_analysis_sth = $dbh->prepare('INSERT INTO analysis(game_id, engine, pv, depth, movetime) VALUES (?, ?, ?, ?, ?)')
+		       		or die "Cannot prepare statement: ".$dbh->errstr;
+	
+			$ins_analysis_sth->execute($pgn->{gamedescr}{GameId}, $engine_name, $config->findvalue('/config/engine/pv'), $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'))
+				or die "Cannot execute statement: ".$ins_analysis_sth->errstr;
+	
+			$ins_analysis_sth->finish();
+		}
+		else {
+			print "Game already started\n";
+		}
+	
+		my @out_of_book = (0,0);
+		
+		my $fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+	
+		if (defined $pgn->{gamedescr}{SetUp} && $pgn->{gamedescr}{SetUp} eq "1") {
+			$fen = $pgn->{gamedescr}{FEN};
+		}
+	
+		epdset($fen);
+		my ($white_to_move) = epdgetboard();
+	
+		epdset($fen);
+		my @epd = epdlist(@{$pgn->moves()});
+		epdset($fen);
+		my @fromto = epdfromto(@{$pgn->moves()});
+	
+		$engine_exp->send("ucinewgame\r");
+	
+		my $color = ($white_to_move ? 1 : 0);
+		my $ply_offset = $color^1;
+	
+		foreach my $ply (0..$#epd) {
+			my $move_number = int(($ply+$ply_offset)/2+1);
+			$color ^= 1;
+			my $next_move = $fromto[$ply]{'from'}.$fromto[$ply]{'to'}.$fromto[$ply]{'promotion'};
+			print "Next move $move_number:$color $next_move(".@{$pgn->moves()}[$ply].")\n";
+			#check if move is already in the database SELECT 1 FROM WHERE game_id = ? AND colormove_number = ? AND color = ?
+			my $sel_moves_sth = $dbh->prepare('SELECT 1 FROM moves WHERE game_id = ? AND color = ? AND move_number = ?')
+				or die "Cannot prepare statement: ".$dbh->errstr;
+
+			$sel_moves_sth->execute($pgn->{gamedescr}{GameId}, $color, $move_number)
+				or die "Cannot execute statement: ".$sel_moves_sth->errstr;
+
+			#my $move_stored_db;
+	
+			#$sel_moves_sth->bind_columns(\$move_stored_db)
+			#	or die "Cannot bind columns: ".$sel_moves_sth->errstr;
+	
+			if (!$sel_moves_sth->fetch()) {
+				my $in_book = 0;
+				if (!$out_of_book[$color]) {
+					$book_exp->send("$fen\r");
+					$book_exp->expect($timeout,
+						[ eof => sub {
+							die "Expect conversation aborted"; }
+						],
+						[ timeout => sub {
+							die "Expect conversation timeout"; }
+						],
+						[ '-re', qr/^move=([-+\w]+)\b/mi => sub {
+							my $book_move = ($book_exp->matchlist)[0];
+							if ($next_move eq $book_move) {
+								print "Move $next_move in opening book\n";
+								$in_book++;
+							}
+							exp_continue; }
+						],
+						'-re', qr/^end\r?$/mi
+					);
+				}
+				if (!$in_book) {
+					$out_of_book[$color]++;
+				}
+				if (length($next_move) >= 8) {
+					$next_move = substr($next_move,0,2).substr($next_move,4,2).substr($next_move,8);
+				}
+				if ($out_of_book[$color]) {
+					$engine_exp->send("position fen $fen 0 $move_number\r");
+	
+					my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'));
+	
+					my $matched = 0;
+	
+					foreach my $rank (1..$#{$variation}) {
+						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, $rank, \%{$variation->[$rank]});
+
+						if ($variation->[$rank]{'move'} eq $next_move) {
+							printf "Move $next_move matched rank $rank\n";
+							ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, -$rank, \%{$variation->[$rank]});
+							$matched++;
+						}
+					}
+					if (!$matched) {
+						my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'), $next_move);
+						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, 0, \%{$variation->[1]});
+					}
+				}
+				$fen = $epd[$ply];
+	
+				$dbh->commit()
+					or die "Cannot commit transaction: ".DBI->errstr;
+			}
+			else {
+				print "Move already stored\n";
+			}
+
+			$sel_moves_sth->finish();
+
+			$fen = $epd[$ply];
+		}
+	}
+	$engine_exp->send("\cC");
+	$book_exp->send("\r");
+
+	$engine_exp->soft_close();
+	$book_exp->soft_close();
+}
+
+my %total_top_move_percent;
+my %total_blunder_count;
+my %total_missed_mate_count;
+my %total_forced_count;
+my %game_count;
+
+my $sel_games_analysis_sth = $dbh->prepare('SELECT g.game_id, g.white, g.black, g.result, a.pv FROM games g, analysis a WHERE a.game_id = g.game_id AND (g.white = ? OR g.black = ?) ORDER BY g.game_id')
+	or die "Cannot prepare statement: ".$dbh->errstr;
+
+$sel_games_analysis_sth->execute($player_arg, $player_arg)
+	or die "Cannot execute statement: ".$sel_games_analysis_sth->errstr;
+	
+my $game_id_db;
+my $white_db;
+my $black_db;
+my $result_db;
+my $pv_db;
+my @players;
+	
+$sel_games_analysis_sth->bind_columns(\$game_id_db, \$white_db, \$black_db, \$result_db, \$pv_db)
+	or die "Cannot bind columns: ".$sel_games_analysis_sth->errstr;
+	
+while ($sel_games_analysis_sth->fetch()) {
+	print "Game ID: $game_id_db\n";
+
+	$players[0] = $white_db;
+	$players[1] = $black_db;
+
+	print "White: $players[0]\n";
+	print "Black: $players[1]\n";
+	print "Result: $result_db\n";
+
+	my @move_count = (0, 0);
+	my @top_move_count;
+
+	foreach my $color (0..1) {
+		foreach my $rank (1..$pv_db) {
+			$game_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank]++;
+			$top_move_count[$color][$rank] = 0;
+		}
+	}
+
+	my $sel_summary_sth = $dbh->prepare('SELECT color, COUNT(DISTINCT move_number) FROM moves WHERE game_id = ? GROUP BY color ORDER BY color')
+        	or die "Cannot prepare statement: ".$dbh->errstr;
+		
+	$sel_summary_sth->execute($game_id_db)
+		or die "Cannot execute statement: ".$sel_summary_sth->errstr;
+
+	my $color_db;
+	my $move_count_db;
+		
+	$sel_summary_sth->bind_columns(\$color_db, \$move_count_db)
+		or die "Cannot bind columns: ".$sel_summary_sth->errstr;
+		
+	while($sel_summary_sth->fetch()) {
+		$move_count[$color_db] = $move_count_db;
+	}
+		
+	$sel_summary_sth->finish();
+
+	my $sel_top_match_sth = $dbh->prepare('SELECT color, ABS(rank), COUNT(move_number) FROM moves WHERE game_id = ? AND rank < 0 GROUP BY color, ABS(rank) ORDER BY color, ABS(rank)')
+        	or die "Cannot prepare statement: ".$dbh->errstr;
+		
+	$sel_top_match_sth->execute($game_id_db)
+		or die "Cannot execute statement: ".$sel_top_match_sth->errstr;
+		
+	my $rank_db;
+
+	$sel_top_match_sth->bind_columns(\$color_db, \$rank_db, \$move_count_db)
+		or die "Cannot bind columns: ".$sel_top_match_sth->errstr;
+		
+	while($sel_top_match_sth->fetch()) {
+		$top_move_count[$color_db][$rank_db] = $move_count_db;
+	}
+
+	$sel_top_match_sth->finish();
+
+	foreach my $color (0..1) {
+		foreach my $rank (1..$pv_db) {
+			if ($rank > 1) {
+				$top_move_count[$color][$rank] += $top_move_count[$color][$rank-1];
+			}
+			my $top_move_percent = int(($top_move_count[$color][$rank]/$move_count[$color])*100);
+			print "Top $rank move count for $players[$color]: $top_move_percent% ($top_move_count[$color][$rank]/$move_count[$color])\n";
+			$total_top_move_percent{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank] += $top_move_percent;
+		}
+	}
+		
+	my @blunder_count = (0, 0);
+	my $blunder_threshold = $config->findvalue('/config/analysis/blunder_threshold');
+	my $mate_score = $config->findvalue('/config/analysis/mate_score');
+
+	my $sel_blunder_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1, moves m2 WHERE m1.game_id = ? AND m1.game_id = m2.game_id AND m1.move_number = m2.move_number AND m1.color = m2.color AND m1.rank <= 0 AND m2.rank = 1 AND COALESCE(m2.centipawns, SIGN(m2.mate)*?) - COALESCE(m1.centipawns, SIGN(m1.mate)*?) > ? ORDER BY m1.color, m1.move_number')
+        	or die "Cannot prepare statement: ".$dbh->errstr;
+		
+	$sel_blunder_sth->execute($game_id_db, $mate_score, $mate_score, $blunder_threshold)
+		or die "Cannot execute statement: ".$sel_blunder_sth->errstr;
+
+	my $move_number_db;		
+	my $move_blunder_db;
+	my $move_best_db;
+	my $centipawns_blunder_db;
+	my $centipawns_best_db;
+	my $mate_blunder_db;
+	my $mate_best_db;
+
+	$sel_blunder_sth->bind_columns(\$color_db, \$move_number_db,\$move_blunder_db, \$centipawns_blunder_db, \$mate_blunder_db, \$move_best_db, \$centipawns_best_db, \$mate_best_db)
+		or die "Cannot bind columns: ".$sel_blunder_sth->errstr;
+		
+	while($sel_blunder_sth->fetch()) {
+		print "Blunder by $players[$color_db]($move_number_db): $move_blunder_db(".(defined($centipawns_blunder_db) ? $centipawns_blunder_db/1000 : "M".$mate_blunder_db).") => $move_best_db(".(defined($centipawns_best_db) ? $centipawns_best_db/1000 : "M".$mate_best_db).")\n";
+		$blunder_count[$color_db]++;
+	}
+		
+	$sel_blunder_sth->finish();
+
+	foreach my $color (0..1) {
+		print "Blunders for $players[$color]: $blunder_count[$color]\n";
+		$total_blunder_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $blunder_count[$color];
+	}
+
+	my @missed_mate_count = (0, 0);
+
+	my $sel_missed_mate_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.mate FROM moves m1 INNER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 1  WHERE m1.game_id = ? AND m1.rank <= 0 AND m2.mate > 0 AND (m1.mate IS NULL OR (m1.mate > 0 AND m1.mate > m2.mate))')
+        	or die "Cannot prepare statement: ".$dbh->errstr;
+		
+	$sel_missed_mate_sth->execute($game_id_db)
+		or die "Cannot execute statement: ".$sel_missed_mate_sth->errstr;
+		
+	my $move_db;
+	my $centipawns_db;
+	my $mate_db;
+	my $move_missed_db;
+	my $mate_missed_db;
+
+	$sel_missed_mate_sth->bind_columns(\$color_db, \$move_number_db, \$move_db, \$centipawns_db, \$mate_db, \$move_missed_db, \$mate_missed_db)
+		or die "Cannot bind columns: ".$sel_missed_mate_sth->errstr;
+		
+	while($sel_missed_mate_sth->fetch()) {
+		print "Missed mate by $players[$color_db]($move_number_db): $move_db(".(defined($centipawns_db) ? $centipawns_db/1000 : "M".$mate_db).") => $move_missed_db(M$mate_missed_db)\n";
+		$missed_mate_count[$color_db]++;
+	}
+		
+	$sel_missed_mate_sth->finish();
+
+	foreach my $color (0..1) {
+		print "Missed mates for $players[$color]: $missed_mate_count[$color]\n";
+		$total_missed_mate_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $missed_mate_count[$color];
+	}
+
+	my @forced_count = (0, 0);
+	my $forced_threshold = $config->findvalue('/config/analysis/forced_threshold');
+	
+	my $sel_forced_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1 LEFT OUTER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 2 WHERE m1.game_id = ? AND m1.rank = -1 AND (m1.centipawns - m2.centipawns > ? OR m2.rank IS NULL) ORDER BY m1.color, m1.move_number')
+        	or die "Cannot prepare statement: ".$dbh->errstr;
+		
+	$sel_forced_sth->execute($game_id_db, $forced_threshold)
+		or die "Cannot execute statement: ".$sel_forced_sth->errstr;
+
+	my $centipawns_forced_db;
+	my $centipawns_next_db;
+	my $mate_forced_db;
+	my $mate_next_db;
+	my $move_forced_db;
+	my $move_next_db;
+		
+	$sel_forced_sth->bind_columns(\$color_db, \$move_number_db, \$move_forced_db, \$centipawns_forced_db, \$mate_forced_db, \$move_next_db, \$centipawns_next_db, \$mate_next_db)
+		or die "Cannot bind columns: ".$sel_forced_sth->errstr;
+
+	while($sel_forced_sth->fetch()) {
+		print "Forced move by $players[$color_db]($move_number_db): $move_forced_db(".(defined($centipawns_forced_db) ? $centipawns_forced_db/1000 : "M".$mate_forced_db).")".(defined $move_next_db ? " <= $move_next_db(".(defined($centipawns_next_db) ? $centipawns_next_db/1000 : "M".$mate_next_db).")" : "")."\n";
+		$forced_count[$color_db]++;
+	}
+		
+	$sel_forced_sth->finish();
+
+	foreach my $color (0..1) {
+		print "Forced moves for $players[$color]: $forced_count[$color]\n";
+		$total_forced_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $forced_count[$color];
+	}
+}
+
+$sel_games_analysis_sth->finish();
+	
+foreach my $player (keys %game_count) {
+	print "Player name: $player \n";
+	print "Game count: $game_count{$player}[1]\n";
+
+	if ($game_count{$player}[1]) {
+		for my $rank (1..$#{$total_top_move_percent{$player}}) {
+			if (defined $game_count{$player}[$rank]) {
+				print "Average top $rank move: ".int((defined $total_top_move_percent{$player}[$rank] ? $total_top_move_percent{$player}[$rank] : 0)/$game_count{$player}[$rank])."% ($game_count{$player}[$rank])\n";
+			}
+		}
+
+		print "Blunders: ".(defined $total_blunder_count{$player} ? $total_blunder_count{$player} : 0)."\n";
+		print "Missed mates: ".(defined $total_missed_mate_count{$player} ? $total_missed_mate_count{$player} : 0)."\n";
+		print "Forced moves: ".(defined $total_forced_count{$player} ? $total_forced_count{$player} : 0)."\n";
+	}
+}
+
+$dbh->disconnect();

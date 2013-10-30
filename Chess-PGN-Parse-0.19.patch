@@ -1,0 +1,14 @@
+diff -Naur Chess-PGN-Parse-0.19.orig/Parse.pm Chess-PGN-Parse-0.19/Parse.pm
+--- Chess-PGN-Parse-0.19.orig/Parse.pm	2006-01-10 16:29:23.000000000 +0000
++++ Chess-PGN-Parse-0.19/Parse.pm	2013-10-30 00:46:10.485127239 +0000
+@@ -732,8 +732,9 @@
+         # deals with multiple tags in one line
+         $memory{tag} =~ s/\]\s?/\]\n/g;
+     }
+-    while ($memory{tag} =~ /\[(\w+)\s+"(.*)"\]\s*/g) {
++    while ($memory{tag} =~ /\[(\w+)\s+"(.*)"\]\s*(.*)/g) {
+         $self->{gamedescr}{$1} = $2;
++        $memory{tag} = $3;
+     }
+     $memory{tag_printed} =1;
+     $memory{tag} = q{};

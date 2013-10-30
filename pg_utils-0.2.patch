@@ -1,0 +1,170 @@
+diff -Naur pg_utils-0.2.orig/move.c pg_utils-0.2/move.c
+--- pg_utils-0.2.orig/move.c	2008-11-15 01:37:10.000000000 +0000
++++ pg_utils-0.2/move.c	2012-01-09 21:06:41.926666311 +0000
+@@ -4,7 +4,7 @@
+ 
+ char *promote_pieces=" nbrq";
+ 
+-int move_from_string(char move_s[6], uint16 *move){
++int move_from_string(char move_s[10], uint16 *move){
+     int fr,ff,tr,tf,p;
+     char c;
+     char *p_enc;
+@@ -31,7 +31,7 @@
+     return 0;
+ }
+ 
+-int move_to_string(char move_s[6], uint16 move){
++int move_to_string(char move_s[10], uint16 move){
+     int f,fr,ff,t,tr,tf,p;
+     f=(move>>6)&077;
+     fr=(f>>3)&0x7;
+@@ -52,13 +52,13 @@
+         move_s[4]='\0';
+     }
+     if(!strcmp(move_s,"e1h1")){
+-        strcpy(move_s,"e1g1");
++        strcpy(move_s,"e1h1g1f1");
+     }else  if(!strcmp(move_s,"e1a1")){
+-        strcpy(move_s,"e1c1");
++        strcpy(move_s,"e1a1c1d1");
+     }else  if(!strcmp(move_s,"e8h8")){
+-        strcpy(move_s,"e8g8");
++        strcpy(move_s,"e8h8g8f8");
+     }else  if(!strcmp(move_s,"e8a8")){
+-        strcpy(move_s,"e8c8");
++        strcpy(move_s,"e8a8c8d8");
+     }
+     return 0;
+ }
+diff -Naur pg_utils-0.2.orig/move.h pg_utils-0.2/move.h
+--- pg_utils-0.2.orig/move.h	2008-11-14 23:53:28.000000000 +0000
++++ pg_utils-0.2/move.h	2012-01-09 20:59:27.518655319 +0000
+@@ -1,7 +1,7 @@
+ #ifndef MOVE_H
+ #define MOVE_H
+ 
+-int move_from_string(char move_s[6], uint16 *move);
+-int move_to_string(char move_s[6], uint16 move);
++int move_from_string(char move_s[10], uint16 *move);
++int move_to_string(char move_s[10], uint16 move);
+ 
+ #endif
+diff -Naur pg_utils-0.2.orig/pg_query.c pg_utils-0.2/pg_query.c
+--- pg_utils-0.2.orig/pg_query.c	2008-11-15 20:30:31.000000000 +0000
++++ pg_utils-0.2/pg_query.c	2012-01-14 14:32:48.828999732 +0000
+@@ -1,11 +1,13 @@
+ #include <stdio.h>
+ #include <string.h>
++#include <stdlib.h>
+ 
+ #include "book.h"
+ #include "move.h"
+ #include "hash.h"
+ #include "board.h"
+ 
++#define MAX_FEN 100
+ #define MAX_MOVES 100
+ 
+ int main(int argc, char *argv[]){
+@@ -17,53 +19,65 @@
+     int count,offset,total_weight,i;
+     entry_t entries[MAX_MOVES];
+     uint64 key;
+-    char move_s[6];
+-    if(argc<3){
+-        fprintf(stderr,"Usage: pg_query <book> \"<fen>\"\n");
++    char move_s[10];
++    size_t max_fen = MAX_FEN;
++    size_t nfen;
++    if(argc<2){
++        fprintf(stderr,"Usage: pg_query <book>\n");
+         return 1;
+     }
+     book=argv[1];
+-    fen=argv[2];
+-    if(board_from_fen(&board,fen)){
+-        fprintf(stderr,"%s: Illegal FEN\n",fen);
+-        return 1;
+-    }
+-    key=hash(&board);
+     if(!(b=fopen(book,"rb"))){
+         perror(book);
+         return 1;
+     }
+-    offset=find_key(b,key,&entry);
+-    if(entry.key!=key){
+-        fprintf(stderr,"%s: No such fen in \"%s\"\n", fen,book);
+-        fclose(b);
++    if (!(fen = malloc(MAX_FEN+1))){
++        fprintf(stderr,"Memory allocation failure\n");
+         return 1;
+     }
+-    entries[0]=entry;
+-    count=1;
+-    fseek(b,16*(offset+1),SEEK_SET);
+-    while(TRUE){
+-        if(entry_from_file(b,&entry)){
+-            break;
++    printf("readyok\n");
++    while ((nfen = getline(&fen,&max_fen,stdin)) > 1){
++	fen[nfen-1] = '\0';
++        if(board_from_fen(&board,fen)){
++            fprintf(stderr,"%s: Illegal FEN\n",fen);
++            return 1;
+         }
++        key=hash(&board);
++        offset=find_key(b,key,&entry);
+         if(entry.key!=key){
+-            break;
++            /*fprintf(stderr,"%s: No such fen in \"%s\"\n", fen,book);
++            fclose(b);
++            return 1;*/
+         }
+-        if(count==MAX_MOVES){
+-	    fprintf(stderr,"pg_query: Too many moves in this position (max=%d)\n",MAX_MOVES);
+-            return 1;
+-        }
+-        entries[count++]=entry;
+-    }
+-    total_weight=0;
+-    for(i=0;i<count;i++){
+-        total_weight+=entries[i].weight;
+-    }
+-    for(i=0;i<count;i++){
+-        move_to_string(move_s,entries[i].move);
+-        printf("move=%s weight=%5.2f%%\n",
+-                move_s,
+-               100*((double) entries[i].weight/ (double) total_weight));
++        else {
++            entries[0]=entry;
++            count=1;
++            fseek(b,16*(offset+1),SEEK_SET);
++            while(TRUE){
++                if(entry_from_file(b,&entry)){
++                    break;
++                }
++                if(entry.key!=key){
++                    break;
++                }
++                if(count==MAX_MOVES){
++        	    fprintf(stderr,"pg_query: Too many moves in this position (max=%d)\n",MAX_MOVES);
++                    return 1;
++                }
++                entries[count++]=entry;
++            }
++            total_weight=0;
++            for(i=0;i<count;i++){
++                total_weight+=entries[i].weight;
++            }
++            for(i=0;i<count;i++){
++                move_to_string(move_s,entries[i].move);
++                printf("move=%s weight=%5.2f%%\n",
++                        move_s,
++                       100*((double) entries[i].weight/ (double) total_weight));
++            }
++	}
++	printf("end\n");
+     }
+     return 0;
+ }

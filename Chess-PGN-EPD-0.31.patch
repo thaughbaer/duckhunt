@@ -1,0 +1,51 @@
+diff -Naur Chess-PGN-EPD-0.31.orig/EPD.pm Chess-PGN-EPD-0.31/EPD.pm
+--- Chess-PGN-EPD-0.31.orig/EPD.pm	2012-08-30 01:07:44.000000000 +0100
++++ Chess-PGN-EPD-0.31/EPD.pm	2013-10-29 14:26:17.446148160 +0000
+@@ -547,7 +547,7 @@
+     my @moves = @_;
+     my @movelist;
+ 
+-    epdset();
++    #epdset();
+     for (@moves) {
+         if ($_) {
+             my ( $piece, $to, $from, $promotion ) = movetype( $w, $_ );
+@@ -725,7 +725,7 @@
+             print "\%board uninitialized\n";
+         }
+     }
+-    epdset();
++    #epdset();
+     for (@moves) {
+         Print(%board) if $debug;
+         if ($_) {
+@@ -1240,15 +1240,14 @@
+ 
+ sub GetPaths {
+     my $module = shift;
+-    my $sep;
++    my $sep = '/';
+     my $dbECO;
+     my $dbNIC;
+     my $dbOpening;
+ 
+     s/::/\//g, s/$/.pm/ for $module;
+     for (@INC) {
+-        if (/(\\|\/)Perl[\\\/]site[\\\/]lib$/i) {
+-            $sep = $1;
++        if (-e $_ . $sep . $module) {
+             $module = $_ . $sep . $module;
+             last;
+         }
+diff -Naur Chess-PGN-EPD-0.31.orig/scripts/db.pl Chess-PGN-EPD-0.31/scripts/db.pl
+--- Chess-PGN-EPD-0.31.orig/scripts/db.pl	2010-10-03 05:07:51.000000000 +0100
++++ Chess-PGN-EPD-0.31/scripts/db.pl	2013-10-29 14:02:30.994187315 +0000
+@@ -13,7 +13,7 @@
+ my @columns;
+ 
+ mkdir('db');
+-for my $file qw(ECO NIC Opening) {
++for my $file (qw(ECO NIC Opening)) {
+     my %h;
+     if (-e "db/$file.stor") {
+         print "$file exists ok\n";

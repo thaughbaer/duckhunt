@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+<xs:complexType name="engine">
+	<xs:sequence>
+		<xs:element name="path" type="xs:string"/>
+		<xs:element name="hash_size" type="xs:short"/>
+		<xs:element name="pv" type="xs:short"/>
+		<xs:element name="depth" type="xs:short"/>
+		<xs:element name="movetime" type="xs:integer"/>
+	</xs:sequence>
+</xs:complexType>
+			
+<xs:complexType name="polyglot">
+	<xs:sequence>
+		<xs:element name="path" type="xs:string"/>
+		<xs:element name="book" type="xs:string"/>
+	</xs:sequence>
+</xs:complexType>
+			
+<xs:complexType name="database">
+	<xs:sequence>
+		<xs:element name="name" type="xs:string"/>
+		<xs:element name="host" type="xs:string" minOccurs="0"/>
+		<xs:element name="port" type="xs:integer" minOccurs="0"/>
+		<xs:element name="user" type="xs:string" minOccurs="0"/>
+		<xs:element name="password" type="xs:string" minOccurs="0"/>
+	</xs:sequence>
+</xs:complexType>
+
+<xs:complexType name="analysis">
+	<xs:sequence>
+		<xs:element name="blunder_threshold" type="xs:short"/>
+		<xs:element name="forced_threshold" type="xs:short"/>
+		<xs:element name="mate_score" type="xs:short"/>
+	</xs:sequence>
+</xs:complexType>
+
+<xs:element name="config">
+	<xs:complexType>
+    		<xs:sequence>
+			<xs:element name="engine" type="engine"/>
+			<xs:element name="polyglot" type="polyglot"/>
+			<xs:element name="database" type="database"/>
+			<xs:element name="analysis" type="analysis"/>
+		</xs:sequence>
+	</xs:complexType>
+</xs:element>
+
+</xs:schema>

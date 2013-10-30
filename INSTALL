@@ -49,4 +49,51 @@ cd pg_utils-0.2.
 make
 sudo install pg_add pg_query pg_key /usr/local/bin
 
+Create the Duckkhunt Database
+=============================
 
+xxxx is your username
+yyyy is your password
+
+mysql -u root -p
+
+create database duckhunt;
+
+create user 'xxxx'@'localhost' identified by 'yyyy';
+grant all on duckhunt.* to user 'xxxx'@'localhost';
+
+mysql -v -u xxxx -p duckhunt < duckhunt.ddl
+
+Customise the Config File
+=========================
+
+cp duckhunt.xml.sample duckhunt.xml
+
+<?xml version="1.0"?>
+<config>
+	<engine>
+		<path>/usr/games/stockfish</path>
+		<hash_size>256</hash_size>
+		<pv>3</pv>
+		<depth>20</depth>
+		<movetime>10000</movetime>
+	</engine>
+	<polyglot>
+		<path>/usr/local/bin</path>
+		<book>books/varied.bin</book>
+	</polyglot>
+	<database>
+		<name>duckhunt</name>
+	</database>
+	<analysis>
+		<blunder_threshold>250</blunder_threshold>
+		<forced_threshold>250</forced_threshold>
+		<mate_score>10000</mate_score>
+	</analysis>
+</config>
+
+Updating Duckhunt
+=================
+
+cd duckhunt
+git pull

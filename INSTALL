@@ -45,7 +45,7 @@ Install Polyglot Utilities
 gunzip -c pg_utils-0.2.tar.gz | tar xvf -
 
 patch -p0 < pg_utils-0.2.patch
-cd pg_utils-0.2.
+cd pg_utils-0.2
 make
 sudo install pg_add pg_query pg_key /usr/local/bin
 

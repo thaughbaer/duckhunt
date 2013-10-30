@@ -1,0 +1,48 @@
+[Event "Clan challenge"]
+[Site "http://www.redhotpawn.com"]
+[Date "2011.08.15"]
+[EndDate "2011.09.10"]
+[Round "?"]
+[White "thaughbaer"]
+[Black "ChessPraxis"]
+[WhiteRating "1878"]
+[BlackRating "1799"]
+[WhiteElo "1878"]
+[BlackElo "1799"]
+[Result "1-0"]
+[GameId "8635447"]
+
+1. d4 Ng8f6 2. c4 g6 3. Ng1f3 Bf8g7 4. Nb1c3 d6 5. e4 O-O 6. h3 c5 7. d5 e5 8. Bc1g5 Bc8d7 9. Bf1e2 h6 10. Bg5e3 Qd8b6 11. Qd1d2 h5 12. Nf3h4 a5 13. g4 hxg4 14. hxg4 Nf6xg4 15. Be2xg4 Bd7xg4 16. f3 Bg4d7 17. Be3h6 Bg7xh6 18. Qd2xh6 Qb6xb2 19. Ra1c1 Rf8e8 20. Nh4f5 Qb2xc1 21. Qh6xc1 gxf5 22. Qc1h6 f6 23. Qh6h8 Kg8f7 24. Rh1h7 1-0
+
+[Event "Clan challenge"]
+[Site "http://www.redhotpawn.com"]
+[Date "2011.08.15"]
+[EndDate "2011.10.09"]
+[Round "?"]
+[White "ChessPraxis"]
+[Black "thaughbaer"]
+[WhiteRating "1776"]
+[BlackRating "1878"]
+[WhiteElo "1776"]
+[BlackElo "1878"]
+[Result "0-1"]
+[GameId "8635446"]
+
+1. e4 c5 2. Ng1f3 d6 3. d4 cxd4 4. Nf3xd4 e5 5. Nd4f3 Ng8f6 6. Nb1c3 Bf8e7 7. Bf1e2 O-O 8. O-O Nb8d7 9. Bc1e3 b6 10. Qd1d2 Bc8b7 11. Be2d3 Nf6g4 12. Nc3d5 Bb7xd5 13. exd5 Ng4f6 14. Bd3f5 Rf8e8 15. Nf3g5 g6 16. Bf5h3 Nd7c5 17. b4 Nc5e4 18. Ng5xe4 Nf6xe4 19. Qd2d3 f5 20. f3 Ne4g5 21. Be3xg5 Be7xg5 22. g3 Ra8c8 23. Bh3g2 Re8e7 24. a4 Re7c7 25. f4 e4 26. Qd3d1 Bg5f6 27. Ra1a2 Rc7c3 28. g4 Qd8d7 29. a5 bxa5 30. gxf5 gxf5 31. bxa5 Rc8c5 32. Rf1f2 Qd7f7 33. Rf2d2 Bf6g7 34. Kg1h1 Bg7h6 35. Qd1g1 Kg8f8 36. Ra2b2 Bh6xf4 37. Rb2b8 Rc5c8 38. Rb8xc8 Rc3xc8 39. Rd2f2 Bf4e3 40. Rf2xf5 Be3xg1 41. Rf5xf7 Kf8xf7 42. Kh1xg1 Rc8xc2 43. Bg2xe4 Rc2c1 44. Kg1f2 h6 45. a6 Kf7f6 46. Kf2e3 Kf6e5 47. Be4f3 Rc1a1 48. Ke3f2 Ra1xa6 49. h4 Ra6a5 50. Kf2e2 Ra5xd5 51. Bf3xd5 Ke5xd5 52. Ke2d3 a5 53. Kd3c3 Kd5e4 54. Kc3c4 d5 55. Kc4b5 d4 56. Kb5xa5 d3 57. Ka5b5 d2 58. Kb5c6 d1=Q 59. Kc6b6 Qd1d5 60. Kb6c7 Ke4e5 61. h5 Ke5e6 62. Kc7b6 Ke6d6 63. Kb6a6 Qd5b3 64. Ka6a5 Kd6c6 0-1
+
+[Event "Clan league"]
+[Site "http://www.redhotpawn.com"]
+[Date "2013.07.30"]
+[EndDate "2013.10.09"]
+[Round "?"]
+[White "kjl291"]
+[Black "thaughbaer"]
+[WhiteRating "1970"]
+[BlackRating "1901"]
+[WhiteElo "1970"]
+[BlackElo "1901"]
+[Result "1-0"]
+[GameId "10149768"]
+
+1. e4 c5 2. Ng1f3 d6 3. Bf1b5 Nb8c6 4. Bb5xc6 bxc6 5. O-O e5 6. c3 Bc8g4 7. Rf1e1 Ng8f6 8. h3 Bg4h5 9. d3 Bf8e7 10. Qd1a4 Qd8d7 11. Nb1d2 O-O 12. Nf3h4 Rf8e8 13. Nd2f1 Ra8b8 14. Nf1g3 h6 15. a3 Rb8b7 16. b4 cxb4 17. axb4 Re8b8 18. Bc1e3 Be7d8 19. Ng3xh5 Nf6xh5 20. Nh4f5 Bd8b6 21. Be3c1 d5 22. Qa4d1 Nh5f6 23. Qd1f3 dxe4 24. dxe4 Kg8h7 25. Re1d1 Qd7e6 26. Rd1d6 Qe6c4 27. Rd6xf6 1-0
+

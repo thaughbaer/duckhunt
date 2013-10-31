@@ -289,7 +289,7 @@ if ($opt_f) {
 		foreach my $ply (0..$#epd) {
 			my $move_number = int(($ply+$ply_offset)/2+1);
 			$color ^= 1;
-			my $next_move = $fromto[$ply]{'from'}.$fromto[$ply]{'to'}.$fromto[$ply]{'promotion'};
+			my $next_move = $fromto[$ply]{'from'}.$fromto[$ply]{'to'}.lc($fromto[$ply]{'promotion'});
 			print "Next move $move_number:$color $next_move(".@{$pgn->moves()}[$ply].")\n";
 			#check if move is already in the database SELECT 1 FROM WHERE game_id = ? AND colormove_number = ? AND color = ?
 			my $sel_moves_sth = $dbh->prepare('SELECT 1 FROM moves WHERE game_id = ? AND color = ? AND move_number = ?')

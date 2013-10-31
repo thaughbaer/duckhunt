@@ -4,8 +4,8 @@
 		<path>/usr/games/stockfish</path>
 		<hash_size>256</hash_size>
 		<pv>3</pv>
-		<depth>20</depth>
-		<movetime>10000</movetime>
+		<depth>10</depth>
+		<movetime>5000</movetime>
 	</engine>
 	<polyglot>
 		<path>/usr/local/bin</path>

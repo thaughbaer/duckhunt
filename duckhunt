@@ -69,6 +69,7 @@ if ($@) {
 
 #print $config->toString."\n";
 
+my @color_text = ('White', 'Black');
 my $timeout = 30;
 
 sub analyse {
@@ -198,7 +199,7 @@ if ($opt_f) {
 		$pgn->parse_game();
 
 		print "Game ID: $pgn->{gamedescr}{GameId}\n";
-	
+
 		my @players = ($pgn->white, $pgn->black);
 	
 		my $game_stored = 0;
@@ -249,6 +250,16 @@ if ($opt_f) {
 				or die "Cannot execute statement: ".$ins_analysis_sth->errstr;
 	
 			$ins_analysis_sth->finish();
+
+			foreach my $color (0..1) {
+				my $ins_details_sth = $dbh->prepare('INSERT INTO details(game_id, color, move_count) VALUES (?, ?, 0)')
+		       			or die "Cannot prepare statement: ".$dbh->errstr;
+	
+				$ins_details_sth->execute($pgn->{gamedescr}{GameId}, $color)
+					or die "Cannot execute statement: ".$ins_details_sth->errstr;
+	
+				$ins_details_sth->finish();
+			}
 		}
 		else {
 			print "Game already started\n";
@@ -261,7 +272,7 @@ if ($opt_f) {
 		if (defined $pgn->{gamedescr}{SetUp} && $pgn->{gamedescr}{SetUp} eq "1") {
 			$fen = $pgn->{gamedescr}{FEN};
 		}
-	
+
 		epdset($fen);
 		my ($white_to_move) = epdgetboard();
 	
@@ -274,7 +285,7 @@ if ($opt_f) {
 	
 		my $color = ($white_to_move ? 1 : 0);
 		my $ply_offset = $color^1;
-	
+
 		foreach my $ply (0..$#epd) {
 			my $move_number = int(($ply+$ply_offset)/2+1);
 			$color ^= 1;
@@ -287,11 +298,6 @@ if ($opt_f) {
 			$sel_moves_sth->execute($pgn->{gamedescr}{GameId}, $color, $move_number)
 				or die "Cannot execute statement: ".$sel_moves_sth->errstr;
 
-			#my $move_stored_db;
-	
-			#$sel_moves_sth->bind_columns(\$move_stored_db)
-			#	or die "Cannot bind columns: ".$sel_moves_sth->errstr;
-	
 			if (!$sel_moves_sth->fetch()) {
 				my $in_book = 0;
 				if (!$out_of_book[$color]) {
@@ -313,14 +319,23 @@ if ($opt_f) {
 						],
 						'-re', qr/^end\r?$/mi
 					);
-				}
-				if (!$in_book) {
-					$out_of_book[$color]++;
+					if (!$in_book) {
+						print "Move $next_move not in opening book\n";
+						my $upd_details_sth = $dbh->prepare('UPDATE details SET book_exit = ? WHERE game_id = ? AND color = ?')
+		       					or die "Cannot prepare statement: ".$dbh->errstr;
+	
+						$upd_details_sth->execute($move_number, $pgn->{gamedescr}{GameId}, $color)
+							or die "Cannot execute statement: ".$upd_details_sth->errstr;
+	
+						$upd_details_sth->finish();
+
+						$out_of_book[$color]++;
+					}
 				}
 				if (length($next_move) >= 8) {
 					$next_move = substr($next_move,0,2).substr($next_move,4,2).substr($next_move,8);
 				}
-				if ($out_of_book[$color]) {
+				#if ($out_of_book[$color]) {
 					$engine_exp->send("position fen $fen 0 $move_number\r");
 	
 					my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'));
@@ -340,7 +355,7 @@ if ($opt_f) {
 						my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'), $next_move);
 						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, 0, \%{$variation->[1]});
 					}
-				}
+				#}
 				$fen = $epd[$ply];
 	
 				$dbh->commit()
@@ -405,25 +420,30 @@ if (defined $player_arg) {
 			}
 		}
 	
-		my $sel_summary_sth = $dbh->prepare('SELECT color, COUNT(DISTINCT move_number) FROM moves WHERE game_id = ? GROUP BY color ORDER BY color')
+		my $sel_details_sth = $dbh->prepare('SELECT color, move_count, book_exit FROM details d WHERE game_id = ? ORDER BY color')
 	        	or die "Cannot prepare statement: ".$dbh->errstr;
 			
-		$sel_summary_sth->execute($game_id_db)
-			or die "Cannot execute statement: ".$sel_summary_sth->errstr;
+		$sel_details_sth->execute($game_id_db)
+			or die "Cannot execute statement: ".$sel_details_sth->errstr;
 	
 		my $color_db;
 		my $move_count_db;
+		my $book_exit_db;
 			
-		$sel_summary_sth->bind_columns(\$color_db, \$move_count_db)
-			or die "Cannot bind columns: ".$sel_summary_sth->errstr;
+		$sel_details_sth->bind_columns(\$color_db, \$move_count_db, \$book_exit_db)
+			or die "Cannot bind columns: ".$sel_details_sth->errstr;
 			
-		while($sel_summary_sth->fetch()) {
-			$move_count[$color_db] = $move_count_db;
+		while($sel_details_sth->fetch()) {
+			print "$color_text[$color_db] moves: $move_count_db\n";
+			print "$color_text[$color_db] book exit: $book_exit_db\n";
+			if (defined($book_exit_db)) {
+				$move_count[$color_db] = $move_count_db - $book_exit_db + 1;
+			}
 		}
 			
-		$sel_summary_sth->finish();
+		$sel_details_sth->finish();
 	
-		my $sel_top_match_sth = $dbh->prepare('SELECT color, ABS(rank), COUNT(move_number) FROM moves WHERE game_id = ? AND rank < 0 GROUP BY color, ABS(rank) ORDER BY color, ABS(rank)')
+		my $sel_top_match_sth = $dbh->prepare('SELECT m.color, ABS(m.rank), COUNT(m.move_number) FROM moves m, details d WHERE m.game_id = d.game_id AND m.color = d.color AND m.game_id = ? AND m.rank < 0 AND m.move_number >= d.book_exit GROUP BY m.color, ABS(m.rank) ORDER BY m.color, ABS(m.rank)')
 	        	or die "Cannot prepare statement: ".$dbh->errstr;
 			
 		$sel_top_match_sth->execute($game_id_db)
@@ -515,8 +535,8 @@ if (defined $player_arg) {
 	
 		my @forced_count = (0, 0);
 		my $forced_threshold = $config->findvalue('/config/analysis/forced_threshold');
-		
-		my $sel_forced_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1 LEFT OUTER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 2 WHERE m1.game_id = ? AND m1.rank = -1 AND (m1.centipawns - m2.centipawns > ? OR m2.rank IS NULL) ORDER BY m1.color, m1.move_number')
+	
+		my $sel_forced_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1 LEFT OUTER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 2 INNER JOIN details d on m1.game_id = d.game_id AND m1.color = d.color WHERE m1.move_number > d.book_exit AND m1.game_id = ? AND m1.rank = -1 AND (m1.centipawns - m2.centipawns > ? OR m2.rank IS NULL) ORDER BY m1.color, m1.move_number')
 	        	or die "Cannot prepare statement: ".$dbh->errstr;
 			
 		$sel_forced_sth->execute($game_id_db, $forced_threshold)

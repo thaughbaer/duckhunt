@@ -40,7 +40,7 @@ use DBD::mysql;
 
 use Data::Dumper;
 
-if (!getopts('f:') || $#ARGV != 0) {
+if (!getopts('f:') || $#ARGV > 0) {
         die "usage: $0 [ -f pgn_filename ] player\n";
 }
 
@@ -49,7 +49,11 @@ $ENV{'ENV'} = "";
 
 my $program = basename($0);
 
-my $player_arg = $ARGV[0];
+my $player_arg;
+
+if ($#ARGV == 0) {
+	$player_arg = $ARGV[0];
+}
 
 my $config;
 

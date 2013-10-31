@@ -362,204 +362,206 @@ if ($opt_f) {
 	$book_exp->soft_close();
 }
 
-my %total_top_move_percent;
-my %total_blunder_count;
-my %total_missed_mate_count;
-my %total_forced_count;
-my %game_count;
-
-my $sel_games_analysis_sth = $dbh->prepare('SELECT g.game_id, g.white, g.black, g.result, a.pv FROM games g, analysis a WHERE a.game_id = g.game_id AND (g.white = ? OR g.black = ?) ORDER BY g.game_id')
-	or die "Cannot prepare statement: ".$dbh->errstr;
-
-$sel_games_analysis_sth->execute($player_arg, $player_arg)
-	or die "Cannot execute statement: ".$sel_games_analysis_sth->errstr;
+if (defined $player_arg) {
+	my %total_top_move_percent;
+	my %total_blunder_count;
+	my %total_missed_mate_count;
+	my %total_forced_count;
+	my %game_count;
 	
-my $game_id_db;
-my $white_db;
-my $black_db;
-my $result_db;
-my $pv_db;
-my @players;
+	my $sel_games_analysis_sth = $dbh->prepare('SELECT g.game_id, g.white, g.black, g.result, a.pv FROM games g, analysis a WHERE a.game_id = g.game_id AND (g.white = ? OR g.black = ?) ORDER BY g.game_id')
+		or die "Cannot prepare statement: ".$dbh->errstr;
 	
-$sel_games_analysis_sth->bind_columns(\$game_id_db, \$white_db, \$black_db, \$result_db, \$pv_db)
-	or die "Cannot bind columns: ".$sel_games_analysis_sth->errstr;
+	$sel_games_analysis_sth->execute($player_arg, $player_arg)
+		or die "Cannot execute statement: ".$sel_games_analysis_sth->errstr;
+		
+	my $game_id_db;
+	my $white_db;
+	my $black_db;
+	my $result_db;
+	my $pv_db;
+	my @players;
+		
+	$sel_games_analysis_sth->bind_columns(\$game_id_db, \$white_db, \$black_db, \$result_db, \$pv_db)
+		or die "Cannot bind columns: ".$sel_games_analysis_sth->errstr;
+		
+	while ($sel_games_analysis_sth->fetch()) {
+		print "Game ID: $game_id_db\n";
 	
-while ($sel_games_analysis_sth->fetch()) {
-	print "Game ID: $game_id_db\n";
-
-	$players[0] = $white_db;
-	$players[1] = $black_db;
-
-	print "White: $players[0]\n";
-	print "Black: $players[1]\n";
-	print "Result: $result_db\n";
-
-	my @move_count = (0, 0);
-	my @top_move_count;
-
-	foreach my $color (0..1) {
-		foreach my $rank (1..$pv_db) {
-			$game_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank]++;
-			$top_move_count[$color][$rank] = 0;
-		}
-	}
-
-	my $sel_summary_sth = $dbh->prepare('SELECT color, COUNT(DISTINCT move_number) FROM moves WHERE game_id = ? GROUP BY color ORDER BY color')
-        	or die "Cannot prepare statement: ".$dbh->errstr;
-		
-	$sel_summary_sth->execute($game_id_db)
-		or die "Cannot execute statement: ".$sel_summary_sth->errstr;
-
-	my $color_db;
-	my $move_count_db;
-		
-	$sel_summary_sth->bind_columns(\$color_db, \$move_count_db)
-		or die "Cannot bind columns: ".$sel_summary_sth->errstr;
-		
-	while($sel_summary_sth->fetch()) {
-		$move_count[$color_db] = $move_count_db;
-	}
-		
-	$sel_summary_sth->finish();
-
-	my $sel_top_match_sth = $dbh->prepare('SELECT color, ABS(rank), COUNT(move_number) FROM moves WHERE game_id = ? AND rank < 0 GROUP BY color, ABS(rank) ORDER BY color, ABS(rank)')
-        	or die "Cannot prepare statement: ".$dbh->errstr;
-		
-	$sel_top_match_sth->execute($game_id_db)
-		or die "Cannot execute statement: ".$sel_top_match_sth->errstr;
-		
-	my $rank_db;
-
-	$sel_top_match_sth->bind_columns(\$color_db, \$rank_db, \$move_count_db)
-		or die "Cannot bind columns: ".$sel_top_match_sth->errstr;
-		
-	while($sel_top_match_sth->fetch()) {
-		$top_move_count[$color_db][$rank_db] = $move_count_db;
-	}
-
-	$sel_top_match_sth->finish();
-
-	foreach my $color (0..1) {
-		foreach my $rank (1..$pv_db) {
-			if ($rank > 1) {
-				$top_move_count[$color][$rank] += $top_move_count[$color][$rank-1];
-			}
-			my $top_move_percent = int(($top_move_count[$color][$rank]/$move_count[$color])*100);
-			print "Top $rank move count for $players[$color]: $top_move_percent% ($top_move_count[$color][$rank]/$move_count[$color])\n";
-			$total_top_move_percent{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank] += $top_move_percent;
-		}
-	}
-		
-	my @blunder_count = (0, 0);
-	my $blunder_threshold = $config->findvalue('/config/analysis/blunder_threshold');
-	my $mate_score = $config->findvalue('/config/analysis/mate_score');
-
-	my $sel_blunder_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1, moves m2 WHERE m1.game_id = ? AND m1.game_id = m2.game_id AND m1.move_number = m2.move_number AND m1.color = m2.color AND m1.rank <= 0 AND m2.rank = 1 AND COALESCE(m2.centipawns, SIGN(m2.mate)*?) - COALESCE(m1.centipawns, SIGN(m1.mate)*?) > ? ORDER BY m1.color, m1.move_number')
-        	or die "Cannot prepare statement: ".$dbh->errstr;
-		
-	$sel_blunder_sth->execute($game_id_db, $mate_score, $mate_score, $blunder_threshold)
-		or die "Cannot execute statement: ".$sel_blunder_sth->errstr;
-
-	my $move_number_db;		
-	my $move_blunder_db;
-	my $move_best_db;
-	my $centipawns_blunder_db;
-	my $centipawns_best_db;
-	my $mate_blunder_db;
-	my $mate_best_db;
-
-	$sel_blunder_sth->bind_columns(\$color_db, \$move_number_db,\$move_blunder_db, \$centipawns_blunder_db, \$mate_blunder_db, \$move_best_db, \$centipawns_best_db, \$mate_best_db)
-		or die "Cannot bind columns: ".$sel_blunder_sth->errstr;
-		
-	while($sel_blunder_sth->fetch()) {
-		print "Blunder by $players[$color_db]($move_number_db): $move_blunder_db(".(defined($centipawns_blunder_db) ? $centipawns_blunder_db/1000 : "M".$mate_blunder_db).") => $move_best_db(".(defined($centipawns_best_db) ? $centipawns_best_db/1000 : "M".$mate_best_db).")\n";
-		$blunder_count[$color_db]++;
-	}
-		
-	$sel_blunder_sth->finish();
-
-	foreach my $color (0..1) {
-		print "Blunders for $players[$color]: $blunder_count[$color]\n";
-		$total_blunder_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $blunder_count[$color];
-	}
-
-	my @missed_mate_count = (0, 0);
-
-	my $sel_missed_mate_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.mate FROM moves m1 INNER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 1  WHERE m1.game_id = ? AND m1.rank <= 0 AND m2.mate > 0 AND (m1.mate IS NULL OR (m1.mate > 0 AND m1.mate > m2.mate))')
-        	or die "Cannot prepare statement: ".$dbh->errstr;
-		
-	$sel_missed_mate_sth->execute($game_id_db)
-		or die "Cannot execute statement: ".$sel_missed_mate_sth->errstr;
-		
-	my $move_db;
-	my $centipawns_db;
-	my $mate_db;
-	my $move_missed_db;
-	my $mate_missed_db;
-
-	$sel_missed_mate_sth->bind_columns(\$color_db, \$move_number_db, \$move_db, \$centipawns_db, \$mate_db, \$move_missed_db, \$mate_missed_db)
-		or die "Cannot bind columns: ".$sel_missed_mate_sth->errstr;
-		
-	while($sel_missed_mate_sth->fetch()) {
-		print "Missed mate by $players[$color_db]($move_number_db): $move_db(".(defined($centipawns_db) ? $centipawns_db/1000 : "M".$mate_db).") => $move_missed_db(M$mate_missed_db)\n";
-		$missed_mate_count[$color_db]++;
-	}
-		
-	$sel_missed_mate_sth->finish();
-
-	foreach my $color (0..1) {
-		print "Missed mates for $players[$color]: $missed_mate_count[$color]\n";
-		$total_missed_mate_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $missed_mate_count[$color];
-	}
-
-	my @forced_count = (0, 0);
-	my $forced_threshold = $config->findvalue('/config/analysis/forced_threshold');
+		$players[0] = $white_db;
+		$players[1] = $black_db;
 	
-	my $sel_forced_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1 LEFT OUTER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 2 WHERE m1.game_id = ? AND m1.rank = -1 AND (m1.centipawns - m2.centipawns > ? OR m2.rank IS NULL) ORDER BY m1.color, m1.move_number')
-        	or die "Cannot prepare statement: ".$dbh->errstr;
-		
-	$sel_forced_sth->execute($game_id_db, $forced_threshold)
-		or die "Cannot execute statement: ".$sel_forced_sth->errstr;
-
-	my $centipawns_forced_db;
-	my $centipawns_next_db;
-	my $mate_forced_db;
-	my $mate_next_db;
-	my $move_forced_db;
-	my $move_next_db;
-		
-	$sel_forced_sth->bind_columns(\$color_db, \$move_number_db, \$move_forced_db, \$centipawns_forced_db, \$mate_forced_db, \$move_next_db, \$centipawns_next_db, \$mate_next_db)
-		or die "Cannot bind columns: ".$sel_forced_sth->errstr;
-
-	while($sel_forced_sth->fetch()) {
-		print "Forced move by $players[$color_db]($move_number_db): $move_forced_db(".(defined($centipawns_forced_db) ? $centipawns_forced_db/1000 : "M".$mate_forced_db).")".(defined $move_next_db ? " <= $move_next_db(".(defined($centipawns_next_db) ? $centipawns_next_db/1000 : "M".$mate_next_db).")" : "")."\n";
-		$forced_count[$color_db]++;
-	}
-		
-	$sel_forced_sth->finish();
-
-	foreach my $color (0..1) {
-		print "Forced moves for $players[$color]: $forced_count[$color]\n";
-		$total_forced_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $forced_count[$color];
-	}
-}
-
-$sel_games_analysis_sth->finish();
+		print "White: $players[0]\n";
+		print "Black: $players[1]\n";
+		print "Result: $result_db\n";
 	
-foreach my $player (keys %game_count) {
-	print "Player name: $player \n";
-	print "Game count: $game_count{$player}[1]\n";
-
-	if ($game_count{$player}[1]) {
-		for my $rank (1..$#{$total_top_move_percent{$player}}) {
-			if (defined $game_count{$player}[$rank]) {
-				print "Average top $rank move: ".int((defined $total_top_move_percent{$player}[$rank] ? $total_top_move_percent{$player}[$rank] : 0)/$game_count{$player}[$rank])."% ($game_count{$player}[$rank])\n";
+		my @move_count = (0, 0);
+		my @top_move_count;
+	
+		foreach my $color (0..1) {
+			foreach my $rank (1..$pv_db) {
+				$game_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank]++;
+				$top_move_count[$color][$rank] = 0;
 			}
 		}
-
-		print "Blunders: ".(defined $total_blunder_count{$player} ? $total_blunder_count{$player} : 0)."\n";
-		print "Missed mates: ".(defined $total_missed_mate_count{$player} ? $total_missed_mate_count{$player} : 0)."\n";
-		print "Forced moves: ".(defined $total_forced_count{$player} ? $total_forced_count{$player} : 0)."\n";
+	
+		my $sel_summary_sth = $dbh->prepare('SELECT color, COUNT(DISTINCT move_number) FROM moves WHERE game_id = ? GROUP BY color ORDER BY color')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_summary_sth->execute($game_id_db)
+			or die "Cannot execute statement: ".$sel_summary_sth->errstr;
+	
+		my $color_db;
+		my $move_count_db;
+			
+		$sel_summary_sth->bind_columns(\$color_db, \$move_count_db)
+			or die "Cannot bind columns: ".$sel_summary_sth->errstr;
+			
+		while($sel_summary_sth->fetch()) {
+			$move_count[$color_db] = $move_count_db;
+		}
+			
+		$sel_summary_sth->finish();
+	
+		my $sel_top_match_sth = $dbh->prepare('SELECT color, ABS(rank), COUNT(move_number) FROM moves WHERE game_id = ? AND rank < 0 GROUP BY color, ABS(rank) ORDER BY color, ABS(rank)')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_top_match_sth->execute($game_id_db)
+			or die "Cannot execute statement: ".$sel_top_match_sth->errstr;
+			
+		my $rank_db;
+	
+		$sel_top_match_sth->bind_columns(\$color_db, \$rank_db, \$move_count_db)
+			or die "Cannot bind columns: ".$sel_top_match_sth->errstr;
+			
+		while($sel_top_match_sth->fetch()) {
+			$top_move_count[$color_db][$rank_db] = $move_count_db;
+		}
+	
+		$sel_top_match_sth->finish();
+	
+		foreach my $color (0..1) {
+			foreach my $rank (1..$pv_db) {
+				if ($rank > 1) {
+					$top_move_count[$color][$rank] += $top_move_count[$color][$rank-1];
+				}
+				my $top_move_percent = int(($top_move_count[$color][$rank]/$move_count[$color])*100);
+				print "Top $rank move count for $players[$color]: $top_move_percent% ($top_move_count[$color][$rank]/$move_count[$color])\n";
+				$total_top_move_percent{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank] += $top_move_percent;
+			}
+		}
+			
+		my @blunder_count = (0, 0);
+		my $blunder_threshold = $config->findvalue('/config/analysis/blunder_threshold');
+		my $mate_score = $config->findvalue('/config/analysis/mate_score');
+	
+		my $sel_blunder_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1, moves m2 WHERE m1.game_id = ? AND m1.game_id = m2.game_id AND m1.move_number = m2.move_number AND m1.color = m2.color AND m1.rank <= 0 AND m2.rank = 1 AND COALESCE(m2.centipawns, SIGN(m2.mate)*?) - COALESCE(m1.centipawns, SIGN(m1.mate)*?) > ? ORDER BY m1.color, m1.move_number')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_blunder_sth->execute($game_id_db, $mate_score, $mate_score, $blunder_threshold)
+			or die "Cannot execute statement: ".$sel_blunder_sth->errstr;
+	
+		my $move_number_db;		
+		my $move_blunder_db;
+		my $move_best_db;
+		my $centipawns_blunder_db;
+		my $centipawns_best_db;
+		my $mate_blunder_db;
+		my $mate_best_db;
+	
+		$sel_blunder_sth->bind_columns(\$color_db, \$move_number_db,\$move_blunder_db, \$centipawns_blunder_db, \$mate_blunder_db, \$move_best_db, \$centipawns_best_db, \$mate_best_db)
+			or die "Cannot bind columns: ".$sel_blunder_sth->errstr;
+			
+		while($sel_blunder_sth->fetch()) {
+			print "Blunder by $players[$color_db]($move_number_db): $move_blunder_db(".(defined($centipawns_blunder_db) ? $centipawns_blunder_db/1000 : "M".$mate_blunder_db).") => $move_best_db(".(defined($centipawns_best_db) ? $centipawns_best_db/1000 : "M".$mate_best_db).")\n";
+			$blunder_count[$color_db]++;
+		}
+			
+		$sel_blunder_sth->finish();
+	
+		foreach my $color (0..1) {
+			print "Blunders for $players[$color]: $blunder_count[$color]\n";
+			$total_blunder_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $blunder_count[$color];
+		}
+	
+		my @missed_mate_count = (0, 0);
+	
+		my $sel_missed_mate_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.mate FROM moves m1 INNER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 1  WHERE m1.game_id = ? AND m1.rank <= 0 AND m2.mate > 0 AND (m1.mate IS NULL OR (m1.mate > 0 AND m1.mate > m2.mate))')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_missed_mate_sth->execute($game_id_db)
+			or die "Cannot execute statement: ".$sel_missed_mate_sth->errstr;
+			
+		my $move_db;
+		my $centipawns_db;
+		my $mate_db;
+		my $move_missed_db;
+		my $mate_missed_db;
+	
+		$sel_missed_mate_sth->bind_columns(\$color_db, \$move_number_db, \$move_db, \$centipawns_db, \$mate_db, \$move_missed_db, \$mate_missed_db)
+			or die "Cannot bind columns: ".$sel_missed_mate_sth->errstr;
+			
+		while($sel_missed_mate_sth->fetch()) {
+			print "Missed mate by $players[$color_db]($move_number_db): $move_db(".(defined($centipawns_db) ? $centipawns_db/1000 : "M".$mate_db).") => $move_missed_db(M$mate_missed_db)\n";
+			$missed_mate_count[$color_db]++;
+		}
+			
+		$sel_missed_mate_sth->finish();
+	
+		foreach my $color (0..1) {
+			print "Missed mates for $players[$color]: $missed_mate_count[$color]\n";
+			$total_missed_mate_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $missed_mate_count[$color];
+		}
+	
+		my @forced_count = (0, 0);
+		my $forced_threshold = $config->findvalue('/config/analysis/forced_threshold');
+		
+		my $sel_forced_sth = $dbh->prepare('SELECT m1.color, m1.move_number, m1.move, m1.centipawns, m1.mate, m2.move, m2.centipawns, m2.mate FROM moves m1 LEFT OUTER JOIN moves m2 ON m1.game_id = m2.game_id AND m1.color = m2.color AND m1.move_number = m2.move_number AND m2.rank = 2 WHERE m1.game_id = ? AND m1.rank = -1 AND (m1.centipawns - m2.centipawns > ? OR m2.rank IS NULL) ORDER BY m1.color, m1.move_number')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_forced_sth->execute($game_id_db, $forced_threshold)
+			or die "Cannot execute statement: ".$sel_forced_sth->errstr;
+	
+		my $centipawns_forced_db;
+		my $centipawns_next_db;
+		my $mate_forced_db;
+		my $mate_next_db;
+		my $move_forced_db;
+		my $move_next_db;
+			
+		$sel_forced_sth->bind_columns(\$color_db, \$move_number_db, \$move_forced_db, \$centipawns_forced_db, \$mate_forced_db, \$move_next_db, \$centipawns_next_db, \$mate_next_db)
+			or die "Cannot bind columns: ".$sel_forced_sth->errstr;
+	
+		while($sel_forced_sth->fetch()) {
+			print "Forced move by $players[$color_db]($move_number_db): $move_forced_db(".(defined($centipawns_forced_db) ? $centipawns_forced_db/1000 : "M".$mate_forced_db).")".(defined $move_next_db ? " <= $move_next_db(".(defined($centipawns_next_db) ? $centipawns_next_db/1000 : "M".$mate_next_db).")" : "")."\n";
+			$forced_count[$color_db]++;
+		}
+			
+		$sel_forced_sth->finish();
+	
+		foreach my $color (0..1) {
+			print "Forced moves for $players[$color]: $forced_count[$color]\n";
+			$total_forced_count{($players[$color] eq $player_arg ? $players[$color] : 'opponents')} += $forced_count[$color];
+		}
+	}
+	
+	$sel_games_analysis_sth->finish();
+		
+	foreach my $player (keys %game_count) {
+		print "Player name: $player \n";
+		print "Game count: $game_count{$player}[1]\n";
+	
+		if ($game_count{$player}[1]) {
+			for my $rank (1..$#{$total_top_move_percent{$player}}) {
+				if (defined $game_count{$player}[$rank]) {
+					print "Average top $rank move: ".int((defined $total_top_move_percent{$player}[$rank] ? $total_top_move_percent{$player}[$rank] : 0)/$game_count{$player}[$rank])."% ($game_count{$player}[$rank])\n";
+				}
+			}
+	
+			print "Blunders: ".(defined $total_blunder_count{$player} ? $total_blunder_count{$player} : 0)."\n";
+			print "Missed mates: ".(defined $total_missed_mate_count{$player} ? $total_missed_mate_count{$player} : 0)."\n";
+			print "Forced moves: ".(defined $total_forced_count{$player} ? $total_forced_count{$player} : 0)."\n";
+		}
 	}
 }
 

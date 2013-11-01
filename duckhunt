@@ -2,7 +2,7 @@
 
 #******************************************************************************#
 #                                                                              #
-# Copyright (C) 2012 thaughbaer@redhotpawn.com                                  #
+# Copyright (C) 2012 thaughbaer@redhotpawn.com                                 #
 #                                                                              #
 # This program is free software; you can redistribute it and/or modify         #
 # it under the terms of the GNU General Public License as published by         #
@@ -201,6 +201,8 @@ if ($opt_f) {
 		#print Dumper($pgn);
 
 		print "Game ID: $pgn->{gamedescr}{GameId}\n";
+		print "Event: $pgn->{gamedescr}{Event}\n";
+		print "Round: $pgn->{gamedescr}{Round}\n";
 
 		my @players = ($pgn->white, $pgn->black);
 	
@@ -236,11 +238,31 @@ if ($opt_f) {
 	
 		$sel_games_analysis_sth->finish();
 
+		my $sel_details_sth = $dbh->prepare('SELECT color, book_exit FROM details d WHERE game_id = ? ORDER BY color')
+	        	or die "Cannot prepare statement: ".$dbh->errstr;
+			
+		$sel_details_sth->execute($pgn->{gamedescr}{GameId})
+			or die "Cannot execute statement: ".$sel_details_sth->errstr;
+	
+		my @out_of_book = (0,0);
+
+		my $color_db;
+		my $book_exit_db;
+			
+		$sel_details_sth->bind_columns(\$color_db, \$book_exit_db)
+			or die "Cannot bind columns: ".$sel_details_sth->errstr;
+			
+		while($sel_details_sth->fetch()) {
+			if (defined($book_exit_db)) {
+				$out_of_book[$color_db]++;
+			}
+		}
+
 		if (!$game_stored) {
-			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, white, black, result) VALUES (?, ?, ?, ?)')
+			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, event, round, white, black, result) VALUES (?, ?, ?, ?, ?, ?)')
 		       		or die "Cannot prepare statement: ".$dbh->errstr;
 	
-			$ins_games_sth->execute($pgn->{gamedescr}{GameId}, $players[0], $players[1], $pgn->{gamedescr}{Result})
+			$ins_games_sth->execute($pgn->{gamedescr}{GameId}, $pgn->{gamedescr}{Event}, $pgn->{gamedescr}{Round}, $players[0], $players[1], $pgn->{gamedescr}{Result})
 				or die "Cannot execute statement: ".$ins_games_sth->errstr;
 	
 			$ins_games_sth->finish();
@@ -287,9 +309,10 @@ if ($opt_f) {
 		else {
 			print "Game already started\n";
 		}
+
+		$dbh->commit()
+			or die "Cannot commit transaction: ".DBI->errstr;
 	
-		my @out_of_book = (0,0);
-		
 		my $fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 	
 		if (defined $pgn->{gamedescr}{SetUp} && $pgn->{gamedescr}{SetUp} eq "1") {
@@ -314,7 +337,41 @@ if ($opt_f) {
 			$color ^= 1;
 			my $next_move = $fromto[$ply]{'from'}.$fromto[$ply]{'to'}.lc($fromto[$ply]{'promotion'});
 			print "Next move $move_number:$color $next_move(".@{$pgn->moves()}[$ply].")\n";
-			#check if move is already in the database SELECT 1 FROM WHERE game_id = ? AND colormove_number = ? AND color = ?
+
+			my $in_book = 0;
+			if (!$out_of_book[$color]) {
+				$book_exp->send("$fen\r");
+				$book_exp->expect($timeout,
+					[ eof => sub {
+						die "Expect conversation aborted"; }
+					],
+					[ timeout => sub {
+						die "Expect conversation timeout"; }
+					],
+					[ '-re', qr/^move=([-+\w]+)\b/mi => sub {
+						my $book_move = ($book_exp->matchlist)[0];
+						if ($next_move eq $book_move) {
+							print "Move $next_move in opening book\n";
+							$in_book++;
+						}
+						exp_continue; }
+					],
+					'-re', qr/^end\r?$/mi
+				);
+				if (!$in_book) {
+					print "Move $next_move not in opening book\n";
+					my $upd_details_sth = $dbh->prepare('UPDATE details SET book_exit = ? WHERE game_id = ? AND color = ?')
+	       					or die "Cannot prepare statement: ".$dbh->errstr;
+
+					$upd_details_sth->execute($move_number, $pgn->{gamedescr}{GameId}, $color)
+						or die "Cannot execute statement: ".$upd_details_sth->errstr;
+
+					$upd_details_sth->finish();
+
+					$out_of_book[$color]++;
+				}
+			}
+
 			my $sel_moves_sth = $dbh->prepare('SELECT 1 FROM moves WHERE game_id = ? AND color = ? AND move_number = ?')
 				or die "Cannot prepare statement: ".$dbh->errstr;
 
@@ -322,63 +379,28 @@ if ($opt_f) {
 				or die "Cannot execute statement: ".$sel_moves_sth->errstr;
 
 			if (!$sel_moves_sth->fetch()) {
-				my $in_book = 0;
-				if (!$out_of_book[$color]) {
-					$book_exp->send("$fen\r");
-					$book_exp->expect($timeout,
-						[ eof => sub {
-							die "Expect conversation aborted"; }
-						],
-						[ timeout => sub {
-							die "Expect conversation timeout"; }
-						],
-						[ '-re', qr/^move=([-+\w]+)\b/mi => sub {
-							my $book_move = ($book_exp->matchlist)[0];
-							if ($next_move eq $book_move) {
-								print "Move $next_move in opening book\n";
-								$in_book++;
-							}
-							exp_continue; }
-						],
-						'-re', qr/^end\r?$/mi
-					);
-					if (!$in_book) {
-						print "Move $next_move not in opening book\n";
-						my $upd_details_sth = $dbh->prepare('UPDATE details SET book_exit = ? WHERE game_id = ? AND color = ?')
-		       					or die "Cannot prepare statement: ".$dbh->errstr;
-	
-						$upd_details_sth->execute($move_number, $pgn->{gamedescr}{GameId}, $color)
-							or die "Cannot execute statement: ".$upd_details_sth->errstr;
-	
-						$upd_details_sth->finish();
-
-						$out_of_book[$color]++;
-					}
-				}
 				if (length($next_move) >= 8) {
 					$next_move = substr($next_move,0,2).substr($next_move,4,2).substr($next_move,8);
 				}
-				#if ($out_of_book[$color]) {
-					$engine_exp->send("position fen $fen 0 $move_number\r");
+				$engine_exp->send("position fen $fen 0 $move_number\r");
 	
-					my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'));
+				my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'));
 	
-					my $matched = 0;
+				my $matched = 0;
 	
-					foreach my $rank (1..$#{$variation}) {
-						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, $rank, \%{$variation->[$rank]});
+				foreach my $rank (1..$#{$variation}) {
+					ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, $rank, \%{$variation->[$rank]});
 
-						if ($variation->[$rank]{'move'} eq $next_move) {
-							printf "Move $next_move matched rank $rank\n";
-							ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, -$rank, \%{$variation->[$rank]});
-							$matched++;
-						}
+					if ($variation->[$rank]{'move'} eq $next_move) {
+						printf "Move $next_move matched rank $rank\n";
+						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, -$rank, \%{$variation->[$rank]});
+						$matched++;
 					}
-					if (!$matched) {
-						my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'), $next_move);
-						ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, 0, \%{$variation->[1]});
-					}
-				#}
+				}
+				if (!$matched) {
+					my ($variation) = analyse($engine_exp, $config->findvalue('/config/engine/depth'), $config->findvalue('/config/engine/movetime'), $next_move);
+					ins_moves($dbh, $pgn->{gamedescr}{GameId}, $color, $move_number, 0, \%{$variation->[1]});
+				}
 				$fen = $epd[$ply];
 	
 				$dbh->commit()
@@ -407,24 +429,28 @@ if (defined $player_arg) {
 	my %total_forced_count;
 	my %game_count;
 	
-	my $sel_games_analysis_sth = $dbh->prepare('SELECT g.game_id, g.white, g.black, g.result, a.pv FROM games g, analysis a WHERE a.game_id = g.game_id AND (g.white = ? OR g.black = ?) ORDER BY g.game_id')
+	my $sel_games_analysis_sth = $dbh->prepare('SELECT g.game_id, g.event, g.round, g.white, g.black, g.result, a.pv FROM games g, analysis a WHERE a.game_id = g.game_id AND (g.white = ? OR g.black = ?) ORDER BY g.game_id')
 		or die "Cannot prepare statement: ".$dbh->errstr;
 	
 	$sel_games_analysis_sth->execute($player_arg, $player_arg)
 		or die "Cannot execute statement: ".$sel_games_analysis_sth->errstr;
 		
 	my $game_id_db;
+	my $event_db;
+	my $round_db;
 	my $white_db;
 	my $black_db;
 	my $result_db;
 	my $pv_db;
 	my @players;
 		
-	$sel_games_analysis_sth->bind_columns(\$game_id_db, \$white_db, \$black_db, \$result_db, \$pv_db)
+	$sel_games_analysis_sth->bind_columns(\$game_id_db, \$event_db, \$round_db, \$white_db, \$black_db, \$result_db, \$pv_db)
 		or die "Cannot bind columns: ".$sel_games_analysis_sth->errstr;
 		
 	while ($sel_games_analysis_sth->fetch()) {
 		print "Game ID: $game_id_db\n";
+		print "Event: $event_db\n";
+		print "Round: $round_db\n";
 	
 		$players[0] = $white_db;
 		$players[1] = $black_db;

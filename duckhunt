@@ -198,6 +198,8 @@ if ($opt_f) {
 	while ($pgn->read_game()) {
 		$pgn->parse_game();
 
+		#print Dumper($pgn);
+
 		print "Game ID: $pgn->{gamedescr}{GameId}\n";
 
 		my @players = ($pgn->white, $pgn->black);
@@ -233,7 +235,7 @@ if ($opt_f) {
 		}
 	
 		$sel_games_analysis_sth->finish();
-	
+
 		if (!$game_stored) {
 			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, white, black, result) VALUES (?, ?, ?, ?)')
 		       		or die "Cannot prepare statement: ".$dbh->errstr;
@@ -251,11 +253,32 @@ if ($opt_f) {
 	
 			$ins_analysis_sth->finish();
 
+			my @score = split(/-/, $pgn->{gamedescr}{Result});
+			my $score_total = 0;
+			my $score_valid = 1;
+			if (@score == 2) {
+				foreach (@score) {
+				        if (!($_ eq '1' || $_ eq '0' || $_ eq '1/2')) {
+				    		$score_valid = 0;
+				    	}
+				        else {
+				    		$_ = (($_ =~ m{^(\d+)/(\d+)$}) ? $1/$2 : $_);
+						$score_total += $_;
+					}
+				}
+			}
+			else {
+				$score_valid = 0;
+			}
+			if ($score_total != 1) {
+				$score_valid = 0;
+			}
+
 			foreach my $color (0..1) {
-				my $ins_details_sth = $dbh->prepare('INSERT INTO details(game_id, color, move_count) VALUES (?, ?, 0)')
+				my $ins_details_sth = $dbh->prepare('INSERT INTO details(game_id, color, score, move_count) VALUES (?, ?, ?, 0)')
 		       			or die "Cannot prepare statement: ".$dbh->errstr;
 	
-				$ins_details_sth->execute($pgn->{gamedescr}{GameId}, $color)
+				$ins_details_sth->execute($pgn->{gamedescr}{GameId}, $color, ($score_valid ? $score[$color] : undef))
 					or die "Cannot execute statement: ".$ins_details_sth->errstr;
 	
 				$ins_details_sth->finish();

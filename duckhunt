@@ -203,7 +203,7 @@ if ($opt_f) {
 	while ($pgn->read_game()) {
 		$pgn->parse_game();
 
-		print Dumper($pgn);
+		#print Dumper($pgn);
 
 		print "Game ID: $pgn->{gamedescr}{GameId}\n";
 		print "Event: $pgn->{gamedescr}{Event}\n";

@@ -61,6 +61,7 @@ CREATE TABLE `details` (
   `color` tinyint(4) NOT NULL,
   `move_count` smallint(6) NOT NULL,
   `book_exit` smallint(6) DEFAULT NULL,
+  `score` float DEFAULT NULL,
   PRIMARY KEY (`game_id`,`color`),
   CONSTRAINT `details_ibfk_1` FOREIGN KEY (`game_id`) REFERENCES `games` (`game_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -162,4 +163,4 @@ CREATE TABLE `top_match` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2013-10-31 18:44:28
+-- Dump completed on 2013-11-01  1:00:06

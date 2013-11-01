@@ -128,6 +128,11 @@ my $dbh = DBI->connect("DBI:mysql:database=".$config->findvalue('/config/databas
 $dbh->{AutoCommit} = 0;
 
 if ($opt_f) {
+	my $pgn_filename = $opt_f;
+
+	(-r $pgn_filename)
+		or die "Cannot open pgn file: errno $!";
+
 	my $engine_exp = new Expect;
 	
 	$engine_exp->spawn($config->findvalue('/config/engine/path'))
@@ -192,13 +197,13 @@ if ($opt_f) {
 		'-re', qr/readyok\r/i
 	);
 	
-	my $pgn = new Chess::PGN::Parse($opt_f)
+	my $pgn = new Chess::PGN::Parse($pgn_filename)
 		or die "Cannot open PGN file: errno $!";
 	
 	while ($pgn->read_game()) {
 		$pgn->parse_game();
 
-		#print Dumper($pgn);
+		print Dumper($pgn);
 
 		print "Game ID: $pgn->{gamedescr}{GameId}\n";
 		print "Event: $pgn->{gamedescr}{Event}\n";
@@ -259,10 +264,10 @@ if ($opt_f) {
 		}
 
 		if (!$game_stored) {
-			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, event, round, white, black, result) VALUES (?, ?, ?, ?, ?, ?)')
+			my $ins_games_sth = $dbh->prepare('INSERT INTO games(game_id, event, date, round, white, black, result) VALUES (?, ?, STR_TO_DATE(?, \'%Y.%m.%d\'), ?, ?, ?, ?)')
 		       		or die "Cannot prepare statement: ".$dbh->errstr;
 	
-			$ins_games_sth->execute($pgn->{gamedescr}{GameId}, $pgn->{gamedescr}{Event}, $pgn->{gamedescr}{Round}, $players[0], $players[1], $pgn->{gamedescr}{Result})
+			$ins_games_sth->execute($pgn->{gamedescr}{GameId}, $pgn->{gamedescr}{Event}, $pgn->{gamedescr}{Date}, $pgn->{gamedescr}{Round}, $players[0], $players[1], $pgn->{gamedescr}{Result})
 				or die "Cannot execute statement: ".$ins_games_sth->errstr;
 	
 			$ins_games_sth->finish();
@@ -297,10 +302,10 @@ if ($opt_f) {
 			}
 
 			foreach my $color (0..1) {
-				my $ins_details_sth = $dbh->prepare('INSERT INTO details(game_id, color, score, move_count) VALUES (?, ?, ?, 0)')
+				my $ins_details_sth = $dbh->prepare('INSERT INTO details(game_id, color, score, rating, move_count) VALUES (?, ?, ?, ?, 0)')
 		       			or die "Cannot prepare statement: ".$dbh->errstr;
 	
-				$ins_details_sth->execute($pgn->{gamedescr}{GameId}, $color, ($score_valid ? $score[$color] : undef))
+				$ins_details_sth->execute($pgn->{gamedescr}{GameId}, $color, ($score_valid ? $score[$color] : undef), (!$color ? $pgn->{gamedescr}{WhiteRating} : $pgn->{gamedescr}{BlackRating}))
 					or die "Cannot execute statement: ".$ins_details_sth->errstr;
 	
 				$ins_details_sth->finish();

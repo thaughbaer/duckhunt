@@ -62,6 +62,7 @@ CREATE TABLE `details` (
   `move_count` smallint(6) NOT NULL,
   `book_exit` smallint(6) DEFAULT NULL,
   `score` float DEFAULT NULL,
+  `rating` int(11) DEFAULT NULL,
   PRIMARY KEY (`game_id`,`color`),
   CONSTRAINT `details_ibfk_1` FOREIGN KEY (`game_id`) REFERENCES `games` (`game_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -79,6 +80,9 @@ CREATE TABLE `games` (
   `white` varchar(32) NOT NULL,
   `black` varchar(32) NOT NULL,
   `result` varchar(8) DEFAULT NULL,
+  `event` varchar(80) DEFAULT NULL,
+  `round` varchar(16) DEFAULT NULL,
+  `date` date NOT NULL,
   PRIMARY KEY (`game_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -163,4 +167,4 @@ CREATE TABLE `top_match` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2013-11-01  1:00:06
+-- Dump completed on 2013-11-01 13:32:27

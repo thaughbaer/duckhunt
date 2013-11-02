@@ -42,7 +42,7 @@ CREATE TABLE `analysis` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = '' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`mike`@`localhost`*/ /*!50003 trigger before_insert_analysis before insert on analysis for each row begin set new.user = session_user(); end */;;
+/*!50003 CREATE*/ /*!50003 trigger before_insert_analysis before insert on analysis for each row begin set new.user = session_user(); end */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -119,7 +119,7 @@ CREATE TABLE `moves` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = '' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`mike`@`localhost`*/ /*!50003 TRIGGER after_insert_moves AFTER INSERT ON moves  FOR EACH ROW BEGIN UPDATE details SET move_count = move_count + 1 WHERE game_id = NEW.game_id AND color = NEW.color AND NEW.rank <= 0; END */;;
+/*!50003 CREATE*/ /*!50003 TRIGGER after_insert_moves AFTER INSERT ON moves  FOR EACH ROW BEGIN UPDATE details SET move_count = move_count + 1 WHERE game_id = NEW.game_id AND color = NEW.color AND NEW.rank <= 0; END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -134,7 +134,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = '' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`mike`@`localhost`*/ /*!50003 TRIGGER after_delete_moves AFTER DELETE ON moves  FOR EACH ROW BEGIN UPDATE details SET move_count = move_count - 1 WHERE game_id = OLD.game_id AND color = OLD.color AND OLD.rank <= 0; END */;;
+/*!50003 CREATE*/ /*!50003 TRIGGER after_delete_moves AFTER DELETE ON moves  FOR EACH ROW BEGIN UPDATE details SET move_count = move_count - 1 WHERE game_id = OLD.game_id AND color = OLD.color AND OLD.rank <= 0; END */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -167,4 +167,4 @@ CREATE TABLE `top_match` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2013-11-01 13:32:27
+-- Dump completed on 2013-11-02 10:27:36

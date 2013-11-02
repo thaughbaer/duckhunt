@@ -88,7 +88,7 @@ sub analyse {
 		[ timeout => sub {
 			die "Expect conversation timeout"; }
 		],
-		[ '-re', qr/^info (.*)?\bpv ([-+\w]+)\b.*?\r?$/mi => sub {
+		[ '-re', qr/^info (.*)?\bpv ([-+\w]+)\b([-+\w\s].*)?\r$/mi => sub {
 			(my $rank) = ($exp->matchlist)[0] =~ /\bmultipv (\d+)\b/;
 			($variation[$rank]{'depth'}) = ($exp->matchlist)[0] =~ /\bdepth (\d+)\b/;
 			($variation[$rank]{'seldepth'}) = ($exp->matchlist)[0] =~ /\bseldepth (\d+)\b/;
@@ -97,6 +97,7 @@ sub analyse {
 			($variation[$rank]{'nodes'}) = ($exp->matchlist)[0] =~ /\bnodes (\d+)\b/;
 			($variation[$rank]{'time'}) = ($exp->matchlist)[0] =~ /\btime (\d+)\b/;
 			$variation[$rank]{'move'} = ($exp->matchlist)[1];
+			$variation[$rank]{'line'} = ($exp->matchlist)[2];
 			exp_continue; }
 		],
 		'-re', qr/^bestmove\b.*?\r?$/mi
@@ -111,12 +112,12 @@ sub ins_moves
 	my $color = shift;
 	my $move_number = shift;
 	my $rank = shift;
-	my $move = shift;
+	my $variation = shift;
 
-	my $ins_moves_sth = $dbh->prepare('INSERT INTO moves(game_id, color, move_number, rank, depth, seldepth, centipawns, mate, nodes, time, move) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+	my $ins_moves_sth = $dbh->prepare('INSERT INTO moves(game_id, color, move_number, rank, depth, seldepth, centipawns, mate, nodes, time, move, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
        		or die "Cannot prepare statement: ".$dbh->errstr;
 	
-	$ins_moves_sth->execute($game_id, $color, $move_number, $rank, $move->{'depth'}, $move->{'seldepth'}, $move->{'centipawns'}, $move->{'mate'}, $move->{'nodes'}, $move->{'time'}, $move->{'move'})
+	$ins_moves_sth->execute($game_id, $color, $move_number, $rank, $variation->{'depth'}, $variation->{'seldepth'}, $variation->{'centipawns'}, $variation->{'mate'}, $variation->{'nodes'}, $variation->{'time'}, $variation->{'move'}, ($rank == 1 ? $variation->{'line'} : undef))
 		or die "Cannot execute statement: ".$ins_moves_sth->errstr;
 	
 	$ins_moves_sth->finish();
@@ -489,7 +490,7 @@ if (defined $player_arg) {
 			
 		while($sel_details_sth->fetch()) {
 			print "$color_text[$color_db] moves: $move_count_db\n";
-			print "$color_text[$color_db] book exit: $book_exit_db\n";
+			print "$color_text[$color_db] book exit: ".(defined($book_exit_db) ? $book_exit_db : 'none')."\n";
 			if (defined($book_exit_db)) {
 				$move_count[$color_db] = $move_count_db - $book_exit_db + 1;
 			}
@@ -519,9 +520,11 @@ if (defined $player_arg) {
 				if ($rank > 1) {
 					$top_move_count[$color][$rank] += $top_move_count[$color][$rank-1];
 				}
-				my $top_move_percent = int(($top_move_count[$color][$rank]/$move_count[$color])*100);
-				print "Top $rank move count for $players[$color]: $top_move_percent% ($top_move_count[$color][$rank]/$move_count[$color])\n";
-				$total_top_move_percent{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank] += $top_move_percent;
+				if ($move_count[$color]) {
+					my $top_move_percent = int(($top_move_count[$color][$rank]/$move_count[$color])*100);
+					print "Top $rank move count for $players[$color]: $top_move_percent% ($top_move_count[$color][$rank]/$move_count[$color])\n";
+					$total_top_move_percent{($players[$color] eq $player_arg ? $players[$color] : 'opponents')}[$rank] += $top_move_percent;
+				}
 			}
 		}
 			

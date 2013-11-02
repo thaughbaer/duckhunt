@@ -106,6 +106,7 @@ CREATE TABLE `moves` (
   `seldepth` smallint(6) DEFAULT NULL,
   `nodes` int(11) DEFAULT NULL,
   `time` int(11) DEFAULT NULL,
+  `line` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`game_id`,`color`,`move_number`,`rank`),
   CONSTRAINT `moves_ibfk_1` FOREIGN KEY (`game_id`) REFERENCES `games` (`game_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -167,4 +168,4 @@ CREATE TABLE `top_match` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2013-11-02 10:27:36
+-- Dump completed on 2013-11-02 11:55:45
